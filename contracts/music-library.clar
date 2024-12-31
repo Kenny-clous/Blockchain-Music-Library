@@ -85,3 +85,171 @@
     )
 )
 
+;; Validates if a given tag has a valid length (between 1 and 24 characters)
+(define-private (is-valid-tag (tag (string-ascii 24)))
+    (and 
+        (> (len tag) u0)  ;; Tag length must be greater than 0
+        (< (len tag) u25)  ;; Tag length must be less than 25
+    )
+)
+
+;; Validates a list of tags to ensure each tag is valid (between 1 and 24 characters) and the list has no more than 8 tags
+(define-private (are-valid-tags (tags (list 8 (string-ascii 24))))
+    (and
+        (> (len tags) u0)  ;; Tags list cannot be empty
+        (<= (len tags) u8)  ;; Tags list cannot have more than 8 tags
+        (is-eq (len (filter is-valid-tag tags)) (len tags))  ;; All tags must be valid
+    )
+)
+
+;; ---------------------------
+;; Public Functions
+;; ---------------------------
+
+;; Adds a new song to the decentralized music library
+(define-public (add-song 
+        (title (string-ascii 64))     ;; Song title
+        (artist (string-ascii 32))    ;; Artist name
+        (duration uint)               ;; Duration of the song in seconds
+        (genre (string-ascii 32))     ;; Genre of the song
+        (tags (list 8 (string-ascii 24)))  ;; List of metadata tags
+    )
+    (let
+        ((new-song-id (+ (var-get total-song-count) u1)))  ;; Generate a new song ID based on the total song count
+
+        ;; Validation checks
+        (asserts! (and (> (len title) u0) (< (len title) u65)) ERR-INVALID-TITLE)  ;; Validate title length
+        (asserts! (and (> (len artist) u0) (< (len artist) u33)) ERR-INVALID-TITLE)  ;; Validate artist length
+        (asserts! (and (> duration u0) (< duration u10000)) ERR-INVALID-DURATION)  ;; Validate duration
+        (asserts! (and (> (len genre) u0) (< (len genre) u33)) ERR-INVALID-TITLE)  ;; Validate genre length
+        (asserts! (are-valid-tags tags) ERR-INVALID-TITLE)  ;; Validate tags
+
+        ;; Store the song data in the library
+        (map-insert song-library
+            {id: new-song-id}
+            {
+                title: title,
+                artist: artist,
+                owner: tx-sender,  ;; Owner is the sender of the transaction
+                duration: duration,
+                creation-block: block-height,  ;; Block height of the song creation
+                genre: genre,
+                metadata-tags: tags
+            }
+        )
+
+        ;; Set permissions for the song owner
+        (map-insert user-permissions
+            {song-id: new-song-id, user: tx-sender}  ;; Permission granted to the song owner
+            {is-authorized: true}
+        )
+
+        ;; Update total song count and return the new song ID
+        (var-set total-song-count new-song-id)
+        (ok new-song-id)
+    )
+)
+
+;; Transfers ownership of a song to a new user
+(define-public (transfer-ownership (song-id uint) (new-owner principal))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+
+        ;; Validation checks
+        (asserts! (does-song-exist song-id) ERR-NOT-FOUND)  ;; Song must exist
+        (asserts! (is-eq (get owner song-data) tx-sender) ERR-UNAUTHORIZED)  ;; Only the owner can transfer ownership
+
+        ;; Update the song's owner to the new owner
+        (map-set song-library
+            {id: song-id}
+            (merge song-data {owner: new-owner})  ;; Merge updated owner info
+        )
+        (ok true)
+    )
+)
+
+;; Updates details of an existing song (title, duration, genre, and tags)
+(define-public (update-song-details 
+        (song-id uint) 
+        (new-title (string-ascii 64)) 
+        (new-duration uint) 
+        (new-genre (string-ascii 32)) 
+        (new-tags (list 8 (string-ascii 24)))
+    )
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+
+        ;; Validation checks
+        (asserts! (does-song-exist song-id) ERR-NOT-FOUND)  ;; Song must exist
+        (asserts! (is-eq (get owner song-data) tx-sender) ERR-UNAUTHORIZED)  ;; Only the owner can update
+        (asserts! (and (> (len new-title) u0) (< (len new-title) u65)) ERR-INVALID-TITLE)  ;; Validate title length
+        (asserts! (and (> new-duration u0) (< new-duration u10000)) ERR-INVALID-DURATION)  ;; Validate duration
+        (asserts! (and (> (len new-genre) u0) (< (len new-genre) u33)) ERR-INVALID-TITLE)  ;; Validate genre length
+        (asserts! (are-valid-tags new-tags) ERR-INVALID-TITLE)  ;; Validate tags
+
+        ;; Update song details
+        (map-set song-library
+            {id: song-id}
+            (merge song-data {
+                title: new-title,
+                duration: new-duration,
+                genre: new-genre,
+                metadata-tags: new-tags
+            })
+        )
+        (ok true)
+    )
+)
+
+;; Retrieves the details of a song by its ID
+(define-public (get-song-details (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok song-data)  ;; Return the song data
+    )
+)
+
+;; Retrieves whether a user has access permission for a song
+(define-public (get-user-permission (song-id uint) (user principal))
+    (let
+        ((permission-data (unwrap! (map-get? user-permissions {song-id: song-id, user: user}) ERR-NOT-FOUND)))  ;; Fetch user permission
+        (ok (get is-authorized permission-data))  ;; Return whether the user is authorized
+    )
+)
+
+;; Retrieves the owner of a song by its ID
+(define-public (get-song-owner (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get owner song-data))  ;; Return the owner of the song
+    )
+)
+
+;; Retrieves the total number of songs in the library
+(define-public (get-total-song-count)
+    (ok (var-get total-song-count))  ;; Return the current total song count
+)
+
+;; Retrieves the genre of a song by its ID
+(define-public (get-song-genre (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get genre song-data))  ;; Return the genre of the song
+    )
+)
+
+;; Retrieves the metadata tags of a song by its ID
+(define-public (get-song-metadata-tags (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get metadata-tags song-data))  ;; Return the metadata tags of the song
+    )
+)
+
+;; Retrieves the artist of a song by its ID
+(define-public (get-song-artist (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get artist song-data))  ;; Return the artist of the song
+    )
+)
