@@ -253,3 +253,82 @@
         (ok (get artist song-data))  ;; Return the artist of the song
     )
 )
+;; Retrieves the title of a song by its ID
+(define-public (get-song-title (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get title song-data))  ;; Return the title of the song
+    )
+)
+
+;; Retrieves the duration of a song by its ID
+(define-public (get-song-duration-by-id (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get duration song-data))  ;; Return the duration of the song
+    )
+)
+
+(define-public (get-song-metadata-by-id (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get metadata-tags song-data))  ;; Return the metadata tags of the song
+    )
+)
+
+;; Retrieves the block height when a song was created
+(define-public (get-song-creation-block (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get creation-block song-data))  ;; Return the block height of the song creation
+    )
+)
+
+(define-public (get-song-duration-by-owner (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (asserts! (is-eq (get owner song-data) tx-sender) ERR-UNAUTHORIZED)  ;; Only owner can fetch the duration
+        (ok (get duration song-data))  ;; Return the duration of the song
+    )
+)
+
+;; Checks if a user has access to a song
+(define-public (check-user-access (song-id uint) (user principal))
+    (let
+        ((permission-data (unwrap! (map-get? user-permissions {song-id: song-id, user: user}) ERR-NOT-FOUND)))  ;; Fetch user permission
+        (ok (get is-authorized permission-data))  ;; Return the authorization status
+    )
+)
+
+;; Retrieves all metadata tags of a song by its ID
+(define-public (get-all-tags (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+        (ok (get metadata-tags song-data))  ;; Return the list of metadata tags
+    )
+)
+
+;; Checks if a song exists in the library by its song ID
+(define-public (song-exists? (song-id uint))
+    (let
+        ((exists (is-some (map-get? song-library {id: song-id}))))  ;; Check if song exists
+        (ok exists)  ;; Return true if song exists, false otherwise
+    )
+)
+
+
+;; Removes a song from the library (only accessible to the song owner)
+(define-public (remove-song (song-id uint))
+    (let
+        ((song-data (unwrap! (map-get? song-library {id: song-id}) ERR-NOT-FOUND)))  ;; Fetch song data
+
+        ;; Validation checks
+        (asserts! (does-song-exist song-id) ERR-NOT-FOUND)  ;; Song must exist
+        (asserts! (is-eq (get owner song-data) tx-sender) ERR-UNAUTHORIZED)  ;; Only the owner can remove the song
+
+        ;; Remove song data from the library
+        (map-delete song-library {id: song-id})
+        (map-delete user-permissions {song-id: song-id, user: tx-sender})
+        (ok true)
+    )
+)
